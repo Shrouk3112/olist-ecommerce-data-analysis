@@ -1,4 +1,6 @@
 -- Q1: What are the top 10 product categories by total revenue (not just order count)?
+-- Scope note: revenue counts every recorded order, including canceled and
+-- unavailable ones (delivered orders alone total 13.22M BRL of 13.59M BRL).
 
 WITH order_items_dedup AS (
     SELECT DISTINCT order_id, order_item_id, product_id, seller_id,
@@ -17,8 +19,8 @@ ORDER BY total_revenue DESC;
 Health & Beauty generated the highest total revenue (1,258,681 BRL from 9,670 items)
 despite not having the highest number of items sold. In contrast, Bed & Bath Table
 sold the largest number of items (11,115) but generated noticeably less revenue
-(1,036,988 BRL). This indicates that revenue is influenced not only by sales volume
-but also by the average selling price of products.*/
+(1,036,988 BRL). This shows that the revenue ranking and the unit-sales ranking are
+not the same: some categories earn more from fewer, higher-priced items.*/
 
 
 -- Q2. How does monthly revenue trend over time? Is there a clear seasonal pattern?
@@ -48,7 +50,9 @@ and shouldn't be grouped with the near-zero months.These edge months should be e
 when this data is charted in Power BI, so they don't visually distort the overall growth trend.*/
 
 
--- Q3. What is the Average Order Value (AOV), and does it vary significantly across product categories?
+-- Q3. How does average revenue per order vary across product categories?
+-- Note: this measures revenue per order containing that category, not the
+-- store-wide AOV (an order can contain several categories).
 
 WITH order_items_dedup AS (
     SELECT DISTINCT order_id, order_item_id, product_id, seller_id,
@@ -63,11 +67,10 @@ JOIN dim_products p ON f.product_id = p.product_id
 GROUP BY p.product_category_name_english
 ORDER BY average_order_value DESC;
 /*Insight
-The Computers category recorded the highest Average Order Value (AOV), significantly
+The Computers category recorded the highest average revenue per order, significantly
 outperforming all other product categories, followed by small home appliances and
-home appliances more broadly. This indicates that customers purchasing technology
-and premium home appliance products tend to spend considerably more per order than
-customers in other categories.*/
+home appliances more broadly. Orders containing technology or premium home
+appliance products tend to be worth considerably more than other orders.*/
 
 
 -- Q4. What are the top 10 Brazilian states by total sales?
@@ -96,7 +99,7 @@ concentrated in a single region rather than spread evenly across the country.*/
 
 SELECT
     c.customer_state,
-    ROUND(AVG(DATEDIFF(DAY, o.order_purchase_timestamp, o.order_delivered_customer_date)), 2) AS avg_delivery_days
+    ROUND(AVG(CAST(DATEDIFF(DAY, o.order_purchase_timestamp, o.order_delivered_customer_date) AS FLOAT)), 2) AS avg_delivery_days
 FROM dbo.olist_orders_dataset o
 JOIN dim_customers c ON o.customer_id = c.customer_id
 WHERE o.order_delivered_customer_date IS NOT NULL
@@ -104,29 +107,31 @@ GROUP BY c.customer_state
 ORDER BY avg_delivery_days DESC;
 /*Insight
 There is a noticeable variation in average delivery time across states. The longest
-average delivery time was recorded in RR (29 days), followed by AP (27 days) and AM
-(26 days). In contrast, SP had the shortest average delivery time at 8 days. This
+average delivery time was recorded in RR (29.3 days), followed by AP (27 days) and AM
+(26 days). In contrast, SP had the shortest average delivery time at 8.7 days. This
 wide gap suggests that delivery performance differs significantly between regions.*/
 
 
 -- Q6. On average, does the company deliver orders before or after the estimated delivery date?
 
 SELECT
-    ROUND(AVG(DATEDIFF(DAY, o.order_delivered_customer_date, o.order_estimated_delivery_date)), 2) AS avg_delivery_difference_days
+    ROUND(AVG(CAST(DATEDIFF(DAY, o.order_delivered_customer_date, o.order_estimated_delivery_date) AS FLOAT)), 2) AS avg_delivery_difference_days
 FROM dbo.olist_orders_dataset o
 WHERE o.order_delivered_customer_date IS NOT NULL
   AND o.order_estimated_delivery_date IS NOT NULL;
 /*Insight
-On average, orders were delivered 11 days before the estimated delivery date. This
+On average, orders were delivered 10.9 days before the estimated delivery date. This
 indicates that the company's delivery operations generally outperform customer
 expectations, with most orders arriving earlier than promised.*/
 
 
 -- Q7. Is there a correlation between delivery delays and customer review scores?
+-- Note: each submitted review is counted once, so the 551 orders with more than
+-- one review appear once per review.
 
 SELECT
     r.review_score,
-    ROUND(AVG(DATEDIFF(DAY, o.order_estimated_delivery_date, o.order_delivered_customer_date)), 2) AS avg_delivery_delay_days
+    ROUND(AVG(CAST(DATEDIFF(DAY, o.order_estimated_delivery_date, o.order_delivered_customer_date) AS FLOAT)), 2) AS avg_delivery_delay_days
 FROM dbo.olist_orders_dataset o
 JOIN dbo.olist_order_reviews_dataset r ON o.order_id = r.order_id
 WHERE o.order_delivered_customer_date IS NOT NULL
@@ -156,6 +161,7 @@ frequent, indicating that most customers had a positive shopping experience.*/
 
 
 -- Q9. Does the payment method (e.g. installments) have any relationship with customer satisfaction?
+-- Note: an order paid with two methods appears once in each method's group.
 
 SELECT
     p.payment_type,
@@ -232,19 +238,19 @@ separate metrics when evaluating sellers.*/
 
 -- Q12. Based on all the above findings, if the company could improve just one area next year, what does the data point to?
 /*Insight
-The data points most clearly to delivery performance as the single highest-leverage
-area for improvement. Three separate findings converge on this:
-(1) Q7 shows a direct link between delivery delay and review score - customers whose
-    orders arrived closer to the estimated date rated their experience far lower
-    (1-star reviews averaged only 4 days early vs. 13 days early for 5-star reviews).
-(2) Q5 shows delivery time is extremely uneven across regions (8 days in SP vs. up
-    to 29 days in the North), meaning the experience is inconsistent depending on
-    where the customer lives.
-(3) Q4 shows sales are heavily concentrated in SP - so the states with the worst
-    delivery times are also the ones the company has the most room to grow into,
-    and poor delivery is likely holding that growth back.
-Revenue and category-level findings (Q1-Q3, Q10-Q11) are useful for marketing and
-seller management, but they describe *what* is selling, not *why* satisfaction
-varies. Delivery is the one lever that shows up consistently across geography,
-satisfaction, and growth potential at the same time - which is why it stands out
-as the top priority over any single category or seller-level fix.*/
+The data points most clearly to delivery performance as the clearest area for
+improvement. Three findings converge on this:
+(1) Q7 shows delivery delay is strongly associated with review score: late orders
+    receive 1-2 star ratings 54% of the time, versus 9% for on-time orders, and
+    1-star reviews averaged only 4 days early vs. 13 days early for 5-star reviews.
+(2) Q5 shows delivery time is extremely uneven across regions (8.7 days in SP vs.
+    up to 29.3 days in the North), meaning the experience is inconsistent
+    depending on where the customer lives.
+(3) Q4 shows sales are heavily concentrated in SP, so the states with the worst
+    delivery times are also the ones the company has the most room to grow into.
+    Whether poor delivery is holding that growth back is a hypothesis worth
+    testing further, not a proven conclusion.
+Revenue and category-level findings (Q1-Q3, Q10-Q11) describe *what* is selling.
+Delivery is the one lever that shows up consistently across geography and
+satisfaction at the same time, which is why it stands out as the clearest
+priority to investigate first.*/
