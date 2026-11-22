@@ -44,7 +44,7 @@ WITH dedup AS (
 )
 DELETE FROM dedup WHERE row_num > 1;
 
--- Result: 1,000,163 -> 738,009 rows remaining.
+-- Result: 1,000,163 -> 738,332 rows remaining.
 
 
 /* ==============================================================
